@@ -20,4 +20,4 @@ mipsc.exe source.asm res.txt
 
 
 
-`bin`里面由样例参考
+`bin`里面有样例参考
