@@ -10,48 +10,46 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"github.com/kataras/iris/core/errors"
 )
 
-var myFlagSet = flag.NewFlagSet("myflagset", flag.ExitOnError)
 var mapF map[string]string
 var mapT map[string]string
-
 var currentIns string
-var currentNo int
+var currentNo = 0
+var dev *bool
+var errG error
 
-func check(e error) {
-	if e != nil {
-		panic(e)
+func check(e error, msg string) {
+	if e == nil {
+		return
 	}
-}
-
-func cErr(e error, msg string) {
 	fmt.Println("[Error]")
 	fmt.Println(msg)
-	fmt.Println(currentNo, ": ", currentIns)
-	if e != nil {
-		panic(e)
-	} else {
-		os.Exit(1)
+	if currentNo != 0 {
+		fmt.Println(currentNo, ": ", currentIns)
 	}
+	if *dev {
+		panic(e)
+	}
+	os.Exit(1)
 }
 
 func main() {
-	initMap()
-	currentNo = 0
-	myFlagSet.Parse(os.Args)
-	var sourceFile = myFlagSet.Arg(1)
-	var targetFile = myFlagSet.Arg(2)
-	// test code ------
-	//dir, _ := filepath.Abs(filepath.Dir(os.Args[0]))
-	//var sourceFile = dir + "/source.asm"
-	//var targetFile = dir+ "/data.txt"
-	// ----------------
-
-	fi, err := os.Open(sourceFile)
-	check(err)
+	// 解析参数
+	sourceFile := flag.String("s", "null", "source file path.")
+	targetFile := flag.String("o", "res.txt", "result file path.")
+	docFile := flag.String("d", "null", "doc file path.")
+	dev = flag.Bool("dev", false, "Debug model")
+	flag.Parse()
+	// 打开文件
+	if *sourceFile == "null" {
+		check(errors.New(""), "Please choose the source file. For example: -s source.asm")
+	}
+	fi, err := os.Open(*sourceFile)
+	check(err, "Can't open " + *sourceFile)
 	defer fi.Close()
-
+	// 循环处理
 	br := bufio.NewReader(fi)
 	var rs = new(string)
 	for {
@@ -61,24 +59,30 @@ func main() {
 		}
 		currentIns = string(a)
 		currentNo++
-		*rs += currentIns
+		*rs += compile(currentIns)
 	}
-	err = ioutil.WriteFile("doc.csv", doc([]byte(*rs)), 0644)
-	check(err)
-	err = ioutil.WriteFile(targetFile, format([]byte(*rs)), 0644)
-	check(err)
+	// 生成结果文件
+	err = ioutil.WriteFile(*targetFile, format([]byte(*rs)), 0644)
+	check(err, "Can't write result in " + *targetFile)
+	// 生成文档
+	if *docFile != "null" {
+		err = ioutil.WriteFile(*docFile, doc([]byte(*rs)), 0644)
+		check(err, "Can't write doc in " + *docFile)
+	}
 }
 
 func format(old []byte) (res []byte) {
+	var buffer bytes.Buffer
 	count := 0
 	for i := range old {
 		if count > 7 {
-			res = append(res, ' ')
+			buffer.WriteByte(' ')
 			count = 0
 		}
 		count++
-		res = append(res, old[i])
+		buffer.WriteByte(old[i])
 	}
+	res = buffer.Bytes()
 	return
 }
 
@@ -89,25 +93,14 @@ func doc(old []byte) (res []byte) {
 		count++
 		buffer.WriteByte(old[i])
 		currentBuffer.WriteByte(old[i])
-		if count == 6 {
+		if count == 6 || count == 11 || count == 16 {
 			buffer.WriteByte('&')
 			buffer.WriteByte(',')
-		} else if count == 11 {
-			buffer.WriteByte('&')
-			buffer.WriteByte(',')
-		} else if count == 16 {
-			buffer.WriteByte('&')
-			buffer.WriteByte(',')
-		} else if count == 20 {
-			buffer.WriteByte(' ')
-		} else if count == 24 {
-			buffer.WriteByte(' ')
-		} else if count == 28 {
+		} else if count == 20 || count == 24 || count == 28  {
 			buffer.WriteByte(' ')
 		} else if count == 32 {
 			buffer.Write([]byte(",=,"))
 			num, _ := strconv.ParseInt(currentBuffer.String(), 2, 64)
-			// hexStr := strconv.FormatInt(num, 16)
 			hexStr := fmt.Sprintf("%08X&", num)
 			buffer.WriteString(hexStr)
 			currentBuffer.Reset()
@@ -117,7 +110,6 @@ func doc(old []byte) (res []byte) {
 	}
 	res = buffer.Bytes()
 	return
-
 }
 
 func compile(s string) (ins string) {
@@ -132,105 +124,113 @@ func compile(s string) (ins string) {
 	}
 	op, ok := mapF[a[0]]
 	if !ok {
-		cErr(nil, "There is no a instruction")
+		check(nil, "There is no a instruction")
 	}
 	typeIns := mapT[a[0]]
 	switch typeIns {
 	case "I":
-		regs := ParseReg(other, 3)
+		regs := parseReg(other, 3)
 		ins = toInsI(op, regs[1], regs[0], regs[2])
 	case "I1":
-		rs, rt, imm := ParseI(other)
+		rs, rt, imm := parseI(other)
 		ins = toInsI(op, rs, rt, imm)
 	case "I2":
-		rs, imm := ParseII(other)
+		rs, imm := parseII(other)
 		ins = toInsI(op, rs, 0, imm)
 	case "R":
-		regs := ParseReg(other, 3)
+		regs := parseReg(other, 3)
 		ins = toInsR(op, regs[1], regs[2], regs[0], 0, 0)
 	case "R1":
-		regs := ParseReg(other, 3)
+		regs := parseReg(other, 3)
 		ins = toInsR(op, 0, regs[1], regs[0], regs[2], 0)
 	case "R2":
-		regs := ParseReg(other, 1)
+		regs := parseReg(other, 1)
 		ins = toInsR(op, regs[0], 0, 0, 0, 0)
 	case "J":
-		imm := ParseJ(other)
+		imm := parseJ(other)
 		ins = toInsJ(op, imm)
 	}
 	return
 }
 
-func ParseReg(ins string, count int) (rs []int64) {
+func parseReg(ins string, count int) (rs []int64) {
 	regs := strings.Split(ins, ",")
 	if len(regs) != count {
-		cErr(nil, "Illegal instruction")
+		check(errors.New(""), "Illegal instruction")
 	}
 	rs = make([]int64, count)
 	for i := 0; i < count; i++ {
-		rs[i], _ = strconv.ParseInt(strings.Replace(regs[i], "$", "", -1), 10, 64)
+		rs[i], errG = strconv.ParseInt(strings.Replace(regs[i], "$", "", -1), 10, 64)
+		check(errG, "Illegal operand")
 	}
 	return
 }
 
-func ParseI(ins string) (rs, rt, imm int64) {
+func parseI(ins string) (rs, rt, imm int64) {
 	regs := strings.Split(ins, ",")
 	if len(regs) != 2 {
-		cErr(nil, "Illegal instruction")
+		check(errors.New(""), "Illegal instruction")
 	}
-	rt, _ = strconv.ParseInt(strings.Replace(regs[0], "$", "", -1), 10, 64)
+	rt, errG = strconv.ParseInt(strings.Replace(regs[0], "$", "", -1), 10, 64)
+	check(errG, "Illegal operand")
 	regs = strings.Split(regs[1], "$")
 	if len(regs) != 2 {
-		cErr(nil, "Illegal instruction")
+		check(errors.New(""), "Illegal instruction")
 	}
-	rs, _ = strconv.ParseInt(strings.Replace(regs[1], ")", "", -1), 10, 64)
-	imm, _ = strconv.ParseInt(strings.Replace(regs[0], "(", "", -1), 10, 64)
+	rs, errG = strconv.ParseInt(strings.Replace(regs[1], ")", "", -1), 10, 64)
+	check(errG, "Illegal operand")
+	imm, errG = strconv.ParseInt(strings.Replace(regs[0], "(", "", -1), 10, 64)
+	check(errG, "Illegal operand")
 	return
 }
 
-func ParseJ(ins string) (imm int64) {
+func parseJ(ins string) (imm int64) {
 	if ins == "" {
 		imm = 0
 	} else {
-		imm, _ = strconv.ParseInt(ins, 0, 64)
+		imm, errG = strconv.ParseInt(ins, 0, 64)
+		check(errG, "Illegal operand")
 	}
 	return
 }
 
-func ParseII(ins string) (rs, imm int64) {
+func parseII(ins string) (rs, imm int64) {
 	regs := strings.Split(ins, ",")
 	if len(regs) != 2 {
-		cErr(nil, "Illegal instruction")
+		check(errors.New(""), "Illegal instruction")
 	}
-	rs, _ = strconv.ParseInt(strings.Replace(regs[0], "$", "", -1), 10, 64)
-	imm, _ = strconv.ParseInt(regs[1], 10, 64)
+	rs, errG = strconv.ParseInt(strings.Replace(regs[0], "$", "", -1), 10, 64)
+	check(errG, "Illegal operand")
+	imm, errG = strconv.ParseInt(regs[1], 10, 64)
+	check(errG, "Illegal operand")
 	return
 }
 
-func Int64toBinStr(num, lenght int64) (ins string) {
-	r, _ := strconv.Atoi(strconv.FormatInt(num, 2))
+func int64toBinStr(num, lenght int64) (ins string) {
+	r, err := strconv.Atoi(strconv.FormatInt(num, 2))
+	check(err, "Illegal operand")
 	ins = fmt.Sprintf("%0"+strconv.FormatInt(lenght, 10)+"d", r)
 	return
 }
 
 func toInsR(op string, rs, rt, rd, sa, funct int64) (ins string) {
 	if rs > 31 || rt > 31 || rd > 31 || sa > 31 || funct > 63 {
-		cErr(nil, "Illegal register")
+		check(errors.New(""), "Illegal register")
 	}
 	ins = op
-	ins += Int64toBinStr(rs, 5)
-	ins += Int64toBinStr(rt, 5)
-	ins += Int64toBinStr(rd, 5)
-	ins += Int64toBinStr(sa, 5)
-	ins += Int64toBinStr(funct, 6)
+	ins += int64toBinStr(rs, 5)
+	ins += int64toBinStr(rt, 5)
+	ins += int64toBinStr(rd, 5)
+	ins += int64toBinStr(sa, 5)
+	ins += int64toBinStr(funct, 6)
 	return
 }
 
-func toImm(imm, lenght int64) (str string) {
+func toImm(imm, length int64) (str string) {
 	if imm >= 0 {
-		str = Int64toBinStr(imm, lenght)
+		str = int64toBinStr(imm, length)
 	} else {
-		tmp := []byte(Int64toBinStr(-imm, lenght))
+		tmp := []byte(int64toBinStr(-imm, length))
 		found := false
 		for i := len(tmp) - 1; i >= 0; i-- {
 			if found {
@@ -251,11 +251,11 @@ func toImm(imm, lenght int64) (str string) {
 
 func toInsI(op string, rs, rt, imm int64) (ins string) {
 	if rs > 31 || rt > 31 {
-		cErr(nil, "Illegal register")
+		check(errors.New(""), "Illegal register")
 	}
 	ins = op
-	ins += Int64toBinStr(rs, 5)
-	ins += Int64toBinStr(rt, 5)
+	ins += int64toBinStr(rs, 5)
+	ins += int64toBinStr(rt, 5)
 	ins += toImm(imm, 16)
 	return
 }
@@ -263,15 +263,16 @@ func toInsI(op string, rs, rt, imm int64) (ins string) {
 func toInsJ(op string, imm int64) (ins string) {
 	ins = op
 	if imm < 0 {
-		cErr(nil, "Illegal instruction")
+		check(errors.New(""), "Illegal instruction")
 	}
 	imm = imm >> 2
-	r, _ := strconv.Atoi(strconv.FormatInt(imm, 2))
+	r, err := strconv.Atoi(strconv.FormatInt(imm, 2))
+	check(err, "Illegal operand")
 	ins += fmt.Sprintf("%026d", r)
 	return
 }
 
-func initMap() {
+func init() {
 	mapF = make(map[string]string)
 	mapF["add"] = "000000"
 	mapF["sub"] = "000001"

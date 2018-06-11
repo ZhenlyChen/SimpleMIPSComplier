@@ -9,7 +9,8 @@
 ## 使用方法
 
 ```shell
-mipsc.exe source.asm res.txt
+mipsc.exe -s source.asm -o res.txt -d doc.csv
+mipsc.exe -h #获取帮助
 ```
 
 `source.asm`为汇编源文件
@@ -19,5 +20,18 @@ mipsc.exe source.asm res.txt
 `doc.csv`为附加生成的表格文件
 
 
+
+```shell
+$ mipsc.exe -h
+Usage of mipsc.exe:
+  -d string
+        doc file path. (default "null")
+  -dev
+        Debug model
+  -o string
+        result file path. (default "res.txt")
+  -s string
+        source file path. (default "null")
+```
 
 `bin`里面有样例参考
