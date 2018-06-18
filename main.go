@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -10,7 +11,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"github.com/kataras/iris/core/errors"
 )
 
 var mapF map[string]string
@@ -47,7 +47,7 @@ func main() {
 		check(errors.New(""), "Please choose the source file. For example: -s source.asm")
 	}
 	fi, err := os.Open(*sourceFile)
-	check(err, "Can't open " + *sourceFile)
+	check(err, "Can't open "+*sourceFile)
 	defer fi.Close()
 	// 循环处理
 	br := bufio.NewReader(fi)
@@ -63,11 +63,11 @@ func main() {
 	}
 	// 生成结果文件
 	err = ioutil.WriteFile(*targetFile, format([]byte(*rs)), 0644)
-	check(err, "Can't write result in " + *targetFile)
+	check(err, "Can't write result in "+*targetFile)
 	// 生成文档
 	if *docFile != "null" {
 		err = ioutil.WriteFile(*docFile, doc([]byte(*rs)), 0644)
-		check(err, "Can't write doc in " + *docFile)
+		check(err, "Can't write doc in "+*docFile)
 	}
 }
 
@@ -96,7 +96,7 @@ func doc(old []byte) (res []byte) {
 		if count == 6 || count == 11 || count == 16 {
 			buffer.WriteByte('&')
 			buffer.WriteByte(',')
-		} else if count == 20 || count == 24 || count == 28  {
+		} else if count == 20 || count == 24 || count == 28 {
 			buffer.WriteByte(' ')
 		} else if count == 32 {
 			buffer.Write([]byte(",=,"))
